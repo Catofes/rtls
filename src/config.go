@@ -1,22 +1,30 @@
 package rtls
 
 import (
-	"github.com/rs/zerolog"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"log"
+	"os"
+
+	"github.com/rs/zerolog"
 )
 
 type config struct {
-	Listen      string
-	CertGateway string
-	CertsPath   string
-	Debug bool
+	Listen       string
+	CertGateway  string
+	CertsPath    string
+	Debug        bool
+	LogBufferLen int
+	logBuffer    *logBuffer
+	logger       zerolog.Logger
 }
 
 func (s *config) load(path string) *config {
 	s.Listen = "0.0.0.0:443"
 	s.CertGateway = "https://cert.catofes.com/"
+	s.LogBufferLen = 1000
+
 	d, e := ioutil.ReadFile(path)
 	if e != nil {
 		log.Fatal(e)
@@ -25,7 +33,11 @@ func (s *config) load(path string) *config {
 	if e != nil {
 		log.Fatal(e)
 	}
-	if s.Debug{
+
+	s.logBuffer = (&logBuffer{}).init(s.LogBufferLen)
+	s.logger = zerolog.New(io.MultiWriter(os.Stdout, s.logBuffer))
+
+	if s.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 	return s

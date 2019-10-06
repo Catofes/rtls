@@ -1,5 +1,6 @@
 package rtls
 
-func Run(){
-	
+//Run function is the entry of this program
+func Run() {
+
 }
