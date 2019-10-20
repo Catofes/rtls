@@ -10,12 +10,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type certConfig struct {
+	uuid string
+}
+
 type config struct {
 	Listen       string
 	CertGateway  string
 	CertsPath    string
 	Debug        bool
 	LogBufferLen int
+	Rules        []map[string]string
+	Certs        map[string]certConfig
 	logBuffer    *logBuffer
 	logger       zerolog.Logger
 }
@@ -23,7 +29,7 @@ type config struct {
 func (s *config) load(path string) *config {
 	s.Listen = "0.0.0.0:443"
 	s.CertGateway = "https://cert.catofes.com/"
-	s.LogBufferLen = 1000
+	s.LogBufferLen = 10000
 
 	d, e := ioutil.ReadFile(path)
 	if e != nil {
