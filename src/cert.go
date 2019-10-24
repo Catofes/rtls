@@ -34,6 +34,7 @@ func (s *cert) init(domain string, l zerolog.Logger) *cert {
 	s.domain = domain
 	s.chain = make([]x509.Certificate, 0)
 	s.log = l.With().Str("domain", s.domain).Logger()
+	s.loadKey()
 	s.loadFromFile()
 	go s.loop()
 	return s
@@ -46,7 +47,7 @@ func (s *cert) loadKey() error {
 			s.log.Fatal().Str("option", "load key").Err(err).Send()
 		}
 	}()
-	path := fmt.Sprintf("%s/%s.crt", s.config.CertsPath, s.domain)
+	path := fmt.Sprintf("%s/%s.key", s.config.CertsPath, s.domain)
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
@@ -56,12 +57,12 @@ func (s *cert) loadKey() error {
 		err = errors.New("parse pem block failed")
 		return err
 	}
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	pub, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
 		return err
 	}
 	s.key = pub
-	s.keyRaw = block.Bytes
+	s.keyRaw = data
 	return nil
 }
 
@@ -72,14 +73,13 @@ func (s *cert) loadFromFile() error {
 		s.log.Debug().Str("option", "load from file").Err(err).Send()
 		return err
 	}
-	s.data = string(data)
-	s.loadFromPEM()
+	s.loadFromPEM(string(data))
 	return nil
 }
 
 func (s *cert) saveToFile() error {
 	path := fmt.Sprintf("%s/%s.crt", s.config.CertsPath, s.domain)
-	err := ioutil.WriteFile(path, []byte(s.data), 644)
+	err := ioutil.WriteFile(path, []byte(s.data), 0644)
 	if err != nil {
 		s.log.Debug().Str("option", "save to file").Err(err).Send()
 		return err
@@ -94,8 +94,8 @@ func (s *cert) loadFromWeb() error {
 	} else {
 		id = s.cert.SerialNumber.String()
 	}
-	url := fmt.Sprintf("%s/%s/watch/%s", s.config.CertGateway, s.uuid, id)
-	resp, err := resty.New().R().Post(url)
+	url := fmt.Sprintf("%s/%s/wait/%s", s.config.CertGateway, s.uuid, id)
+	resp, err := resty.New().R().Get(url)
 	if err != nil {
 		s.log.Debug().Str("option", "download cert").Err(err).Send()
 	}
@@ -106,8 +106,8 @@ func (s *cert) loadFromWeb() error {
 	if resp.StatusCode() == 204 {
 		return nil
 	}
-	s.data = string(resp.Body())
-	s.loadFromPEM()
+	data := string(resp.Body())
+	s.loadFromPEM(data)
 	s.saveToFile()
 	return nil
 }
@@ -121,26 +121,37 @@ func (s *cert) loop() {
 	}
 }
 
-func (s *cert) loadFromPEM() error {
+func (s *cert) loadFromPEM(data string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	l := s.log.With().Str("option", "load from PEM").Logger()
 	var err error
-	s.chain, err = s.parseCert(s.data)
+	chain, err := s.parseCert(data)
 	if err != nil {
-		s.log.Debug().Str("option", "load from PEM").Err(err).Send()
+		l.Err(err).Send()
 		return err
 	}
-	for _, cert := range s.chain {
+	var cert *x509.Certificate
+	for k, c := range chain {
 		//if cert.KeyUsage&x509.KeyUsageCertSign == 0 {
-		if !cert.IsCA {
-			s.cert = &cert
+		if !c.IsCA {
+			cert = &chain[k]
 		}
 	}
-	if s.cert == nil {
+	if cert == nil {
 		err = errors.New("can not find final cert")
-		s.log.Debug().Str("option", "load from PEM").Err(err).Send()
+		l.Err(err).Send()
 		return err
 	}
+
+	if s.cert != nil && cert.SerialNumber.String() == s.cert.SerialNumber.String() {
+		l.Debug().Str("SN", cert.SerialNumber.String()).Msg("Same cert, ignore.")
+		return nil
+	}
+	l.Debug().Str("SN", cert.SerialNumber.String()).Msg("New cert, update.")
+	s.data = data
+	s.chain = chain
+	s.cert = cert
 	s.chainRaw = []byte(s.data)
 	keyPair, err := tls.X509KeyPair(s.chainRaw, s.keyRaw)
 	if err != nil {
@@ -151,6 +162,7 @@ func (s *cert) loadFromPEM() error {
 	s.tlsConfig = &tls.Config{
 		Certificates: append(certs, keyPair),
 	}
+
 	return nil
 }
 

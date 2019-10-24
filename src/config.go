@@ -11,7 +11,7 @@ import (
 )
 
 type certConfig struct {
-	uuid string
+	UUID string
 }
 
 type config struct {

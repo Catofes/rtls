@@ -21,8 +21,8 @@ type tlsServer struct {
 }
 
 //todo
-func (s *tlsServer) init() {
-	s.cm = (&certManager{}).init()
+func (s *tlsServer) init() *tlsServer {
+	s.cm = (&certManager{config: s.config}).init()
 	s.log = s.config.logger.With().Str("module", "handler").Logger()
 	s.rules = make([]map[string]*url.URL, 0)
 	s.tlsConfig = &tls.Config{InsecureSkipVerify: true}
@@ -37,6 +37,7 @@ func (s *tlsServer) init() {
 		}
 		s.rules = append(s.rules, t)
 	}
+	return s
 }
 
 func (s *tlsServer) listen() {
@@ -71,7 +72,19 @@ func (s *tlsServer) handle(c net.Conn) {
 		if u.Scheme == "direct" {
 			lc = cc
 		} else if u.Scheme == "tcp" || u.Scheme == "tls" {
-			lc = tls.Server(cc, s.cm.get(u.User.Username()))
+			config := s.cm.get(u.User.Username())
+			if config == nil {
+				log.Warn().Err(err).Msg("Missing cert config.")
+				return
+			}
+			tc := tls.Server(cc, config)
+			err := tc.Handshake()
+			if err != nil {
+				log.Warn().Err(err).Msg("HandShake error.")
+				return
+			}
+			defer tc.Close()
+			lc = tc
 		}
 		log.Debug().Str("To", host).Msg("Dail.")
 		rc, err := s.dail(u)
@@ -111,8 +124,16 @@ func (s *tlsServer) pipe(a, b net.Conn) error {
 	done := make(chan error, 1)
 	cp := func(r, w net.Conn) {
 		_, err := io.Copy(w, r)
-		w.(*net.TCPConn).CloseWrite()
-		r.(*net.TCPConn).CloseRead()
+		switch w.(type) {
+		case *net.TCPConn:
+			w.(*net.TCPConn).CloseWrite()
+		case *tls.Conn:
+			w.(*tls.Conn).CloseWrite()
+		}
+		switch r.(type) {
+		case *net.TCPConn:
+			r.(*net.TCPConn).CloseRead()
+		}
 		done <- err
 	}
 	go cp(a, b)

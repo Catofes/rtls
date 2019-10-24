@@ -15,11 +15,14 @@ type certManager struct {
 //todo
 func (s *certManager) init() *certManager {
 	s.log = s.config.logger.With().Str("module", "certManager").Logger()
+	s.certs = make(map[string]*cert)
 	for k, v := range s.config.Certs {
 		c := &cert{
-			uuid: v.uuid,
+			config: s.config,
+			uuid:   v.UUID,
 		}
-		c.init(k, s.log)
+		c = c.init(k, s.log)
+		s.certs[k] = c
 	}
 	return s
 }
