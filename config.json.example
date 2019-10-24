@@ -1,0 +1,25 @@
+{
+	"Listen": "0.0.0.0:443",
+	"CertsPath": "./certs",
+	"Debug": true,
+	"LogBufferLen": 10000,
+	"Rules": [
+		{
+			"a.example.com":"tls://a.cert@www.google.com:443"
+		},
+        {
+            "^(.+\\.|)b.example.com$":"tcp://b.cert@127.0.0.1:80"
+        },
+        {
+            "^(.+\\.|)c.example.com$":"direct://www.google.com:443"
+        }
+	],
+	"Certs":{
+		"a.cert": {
+			"UUID": "d6ee5e46-d159-cccc-aaaa-bbbbbbbbbbbb"
+		}
+        "b.cert": {
+            "UUID": "d6ee5e46-d159-cccc-aaaa-dddddddddddd"
+        }
+	}
+}
