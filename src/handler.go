@@ -2,8 +2,11 @@ package rtls
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/url"
 	"regexp"
@@ -18,6 +21,7 @@ type tlsServer struct {
 	log       zerolog.Logger
 	rules     []map[string]*url.URL
 	tlsConfig *tls.Config
+	ca        *x509.CertPool
 }
 
 //todo
@@ -36,6 +40,22 @@ func (s *tlsServer) init() *tlsServer {
 			t[reg] = u
 		}
 		s.rules = append(s.rules, t)
+	}
+	if s.CAPath != "" {
+		data, err := ioutil.ReadFile(s.CAPath)
+		if err != nil {
+			s.log.Fatal().Err(err).Msg("Read client ca cert failed.")
+		}
+		certDERBlock, _ := pem.Decode(data)
+		if certDERBlock == nil {
+			s.log.Fatal().Msg("Parse client ca failed.")
+		}
+		cert, err := x509.ParseCertificate(certDERBlock.Bytes)
+		if err != nil {
+			s.log.Fatal().Err(err).Msg("Parse client ca cert failed.")
+		}
+		s.ca = x509.NewCertPool()
+		s.ca.AddCert(cert)
 	}
 	return s
 }
@@ -71,13 +91,22 @@ func (s *tlsServer) handle(c net.Conn) {
 		var lc net.Conn
 		if u.Scheme == "direct" {
 			lc = cc
-		} else if u.Scheme == "tcp" || u.Scheme == "tls" {
+		} else if u.Scheme == "tcp" || u.Scheme == "tls" || u.Scheme == "ctcp" || u.Scheme == "ctls" {
 			config := s.cm.get(u.User.Username())
 			if config == nil {
 				log.Warn().Err(err).Msg("Missing cert config.")
 				return
 			}
-			tc := tls.Server(cc, config)
+			var tc *tls.Conn
+			if u.Scheme == "ctcp" || u.Scheme == "ctls" {
+				cconfig := &tls.Config{
+					Certificates: config.Certificates,
+					ClientCAs:    s.ca,
+				}
+				tc = tls.Server(cc, cconfig)
+			} else {
+				tc = tls.Server(cc, config)
+			}
 			err := tc.Handshake()
 			if err != nil {
 				log.Warn().Err(err).Msg("HandShake error.")
@@ -101,9 +130,13 @@ func (s *tlsServer) handle(c net.Conn) {
 }
 
 func (s *tlsServer) dail(u *url.URL) (net.Conn, error) {
-	if u.Scheme == "direct" || u.Scheme == "tcp" {
+	if u.Scheme == "direct" || u.Scheme == "tcp" || u.Scheme == "ctcp" {
 		return net.DialTimeout("tcp", u.Host, 5*time.Second)
-	} else if u.Scheme == "tls" {
+	} else if u.Scheme == "tls" || u.Scheme == "ctls" {
+		sni, _ := u.User.Password()
+		if sni != "" {
+			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: sni, InsecureSkipVerify: true})
+		}
 		return tls.Dial("tcp", u.Host, s.tlsConfig)
 	}
 	return nil, errors.New("dail failed, unknow host type")

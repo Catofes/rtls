@@ -22,6 +22,7 @@ type config struct {
 	LogBufferLen int
 	Rules        []map[string]string
 	Certs        map[string]certConfig
+	CAPath       string
 	logBuffer    *logBuffer
 	logger       zerolog.Logger
 }
