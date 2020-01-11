@@ -6,7 +6,7 @@ RUN go mod download
 RUN env CGO_ENABLED=0 go build -o /main .
 
 FROM alpine:3.6
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata ca-certificates
 COPY --from=builder /main /usr/bin/main
 ENTRYPOINT ["/usr/bin/main"]
 CMD ["-c", "/etc/config.json"]
