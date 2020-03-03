@@ -7,5 +7,5 @@ upload-master:
 	docker push catofes/rtls:latest
 
 upload-tag:
-	docker tag catofes/rtls:latest catofes/rtls:$(TRAVIS_TAG)
-	docker push catofes/rtls:$(TRAVIS_TAG)
+	docker tag catofes/rtls:latest catofes/rtls:${TRAVIS_TAG}
+	docker push catofes/rtls:${TRAVIS_TAG}
