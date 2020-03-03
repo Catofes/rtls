@@ -3,10 +3,25 @@ language: go
 go:
   - "1.12.x"
 
+services:
+  - docker
+
+before_script:
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+
 deploy:
-  provider: releases
-  api_key: $GITHUB_TOKEN
-  file: build/main
-  skip_cleanup: true
-  on:
-    tags: true
+  - provider: releases
+    api_key: $GITHUB_TOKEN
+    file: build/main
+    skip_cleanup: true
+    on:
+      tags: true
+  - provider: script
+    script: make upload-master
+    on:
+      branch: master
+  - provider: script
+    script: make upload-tag
+    on:
+      tags: true
+
