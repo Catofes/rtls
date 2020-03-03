@@ -4,7 +4,7 @@ all:
 	docker build --rm -t catofes/rtls .
 
 upload-master:
-	docker push catofes/rtls tag=latest
+	docker push catofes/rtls:latest
 
 upload-tag:
-	docker push catofes/rtls tag="$(TRAVIS_TAG)"
+	docker push catofes/rtls:"$(TRAVIS_TAG)"

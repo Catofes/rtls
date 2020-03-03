@@ -18,10 +18,12 @@ deploy:
       tags: true
   - provider: script
     script: make upload-master
+    skip_cleanup: true
     on:
       branch: master
   - provider: script
     script: make upload-tag
+    skip_cleanup: true
     on:
       tags: true
 
