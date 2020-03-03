@@ -6,9 +6,6 @@ go:
 services:
   - docker
 
-after_script:
-  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-
 deploy:
   - provider: releases
     api_key: $GITHUB_TOKEN
