@@ -7,7 +7,7 @@ services:
   - docker
 
 before_deploy:
-  - echo "$(DOCKER_PASSWORD)" | docker login -u catofes --password-stdin
+  - docker login -u catofes -p "$(DOCKER_PASSWORD)"
 
 deploy:
   - provider: releases
