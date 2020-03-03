@@ -20,6 +20,7 @@ type config struct {
 	CertsPath    string
 	Debug        bool
 	LogBufferLen int
+	Fallback     string
 	Rules        []map[string]string
 	Certs        map[string]certConfig
 	CAPath       string

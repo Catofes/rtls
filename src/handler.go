@@ -30,6 +30,15 @@ func (s *tlsServer) init() *tlsServer {
 	s.log = s.config.logger.With().Str("module", "handler").Logger()
 	s.rules = make([]map[string]*url.URL, 0)
 	s.tlsConfig = &tls.Config{InsecureSkipVerify: true}
+	if s.config.Fallback != "" {
+		t := make(map[string]*url.URL)
+		u, err := url.Parse(s.config.Fallback)
+		if err != nil {
+			s.log.Fatal().Err(err).Msg("Parse server url failed.")
+		}
+		t["fallback"] = u
+		s.rules = append(s.rules, t)
+	}
 	for _, ruleSet := range s.config.Rules {
 		t := make(map[string]*url.URL)
 		for reg, value := range ruleSet {
@@ -84,9 +93,12 @@ func (s *tlsServer) handle(c net.Conn) {
 	host, err := cc.parseSNI()
 	if err != nil {
 		s.log.Warn().Err(err).Msg("ParseSNI error.")
-		return
+		if s.config.Fallback == "" {
+			return
+		} else {
+			host = "fallback"
+		}
 	}
-
 	if u := s.getConfig(host); u != nil {
 		var lc net.Conn
 		if u.Scheme == "direct" {
