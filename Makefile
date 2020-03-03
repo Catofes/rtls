@@ -4,9 +4,8 @@ all:
 	docker build --rm -t catofes/rtls .
 
 upload-master:
-	echo "$(DOCKER_PASSWORD)" | docker login -u catofes --password-stdin
 	docker push catofes/rtls:latest
 
 upload-tag:
-	echo "$(DOCKER_PASSWORD)" | docker login -u catofes --password-stdin
-	docker push catofes/rtls:"$(TRAVIS_TAG)"
+	docker tag catofes/rtls:latest catofes/rtls:$(TRAVIS_TAG)
+	docker push catofes/rtls:$(TRAVIS_TAG)

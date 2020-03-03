@@ -6,6 +6,9 @@ go:
 services:
   - docker
 
+before_deploy:
+  - echo "$(DOCKER_PASSWORD)" | docker login -u catofes --password-stdin
+
 deploy:
   - provider: releases
     api_key: $GITHUB_TOKEN
