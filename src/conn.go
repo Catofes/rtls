@@ -21,7 +21,7 @@ func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 }
 
 func (s *conn) parseSNI() (string, error) {
-	s.log.Debug().Msg("Handle connection.")
+	//s.log.Debug().Msg("Handle connection.")
 	n, err := s.c.Read(s.b)
 	if err != nil {
 		s.log.Debug().Err(err).Msg("Read error.")
@@ -33,7 +33,7 @@ func (s *conn) parseSNI() (string, error) {
 		s.log.Warn().Err(err).Msg("ParseSNI error.")
 		return "", err
 	}
-	s.log.Debug().Str("SNI", host).Msg("Parse SNI success.")
+	s.log.Debug().Str("From", s.RemoteAddr().String()).Str("SNI", host).Msg("Parse SNI success.")
 	return host, nil
 }
 

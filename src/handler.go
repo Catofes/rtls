@@ -87,7 +87,7 @@ func (s *tlsServer) listen() {
 func (s *tlsServer) handle(c net.Conn) {
 	log := s.log.With().Str("from", c.RemoteAddr().String()).Logger()
 	cc := (&conn{}).init(c, s.log)
-	log.Debug().Msg("Handle conn.")
+	//log.Debug().Msg("Handle conn.")
 	defer cc.Close()
 
 	host, err := cc.parseSNI()
@@ -127,10 +127,10 @@ func (s *tlsServer) handle(c net.Conn) {
 			defer tc.Close()
 			lc = tc
 		}
-		log.Debug().Str("To", host).Msg("Dail.")
+		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Dail.")
 		rc, err := s.dail(u)
 		if err != nil {
-			log.Warn().Str("To", host).Err(err).Msg("Dial error.")
+			log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
 			return
 		}
 		defer rc.Close()
