@@ -101,16 +101,18 @@ func (s *tlsServer) handle(c net.Conn) {
 	}
 	if u := s.getConfig(host); u != nil {
 		var lc net.Conn
-		if u.Scheme == "direct" {
+		switch u.Scheme {
+		case "direct":
 			lc = cc
-		} else if u.Scheme == "tcp" || u.Scheme == "tls" || u.Scheme == "ctcp" || u.Scheme == "ctls" {
+		case "tcp":
+		case "tls":
 			config := s.cm.get(u.User.Username())
 			if config == nil {
 				log.Warn().Err(err).Msg("Missing cert config.")
 				return
 			}
 			var tc *tls.Conn
-			if u.Scheme == "ctcp" || u.Scheme == "ctls" {
+			if u.Query().Get("CheckClientCert") == "true" {
 				cconfig := &tls.Config{
 					Certificates: config.Certificates,
 					ClientCAs:    s.ca,
@@ -128,7 +130,7 @@ func (s *tlsServer) handle(c net.Conn) {
 			lc = tc
 		}
 		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Dail.")
-		rc, err := s.dail(u)
+		rc, err := s.dail(u, host)
 		if err != nil {
 			log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
 			return
@@ -141,13 +143,17 @@ func (s *tlsServer) handle(c net.Conn) {
 	}
 }
 
-func (s *tlsServer) dail(u *url.URL) (net.Conn, error) {
-	if u.Scheme == "direct" || u.Scheme == "tcp" || u.Scheme == "ctcp" {
+func (s *tlsServer) dail(u *url.URL, requestSNI string) (net.Conn, error) {
+	switch u.Scheme {
+	case "direct":
+	case "tcp":
 		return net.DialTimeout("tcp", u.Host, 5*time.Second)
-	} else if u.Scheme == "tls" || u.Scheme == "ctls" {
-		sni, _ := u.User.Password()
-		if sni != "" {
-			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: sni, InsecureSkipVerify: true})
+	case "tls":
+		if u.Query().Get("ForceSNI") != "" {
+			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: u.Query().Get("ForceSNI"), InsecureSkipVerify: true})
+		}
+		if u.Query().Get("BypassSNI") == "true" {
+			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: requestSNI, InsecureSkipVerify: true})
 		}
 		return tls.Dial("tcp", u.Host, s.tlsConfig)
 	}

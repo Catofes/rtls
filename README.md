@@ -44,4 +44,14 @@ Let's Encrypt 的泛域名证书需要使用DNS验证，以及一些节点无法
 
 可以通过配置文件中的`"CertGateway":"https://your.cert.center"`来制定证书中心网址。
 
-`Rules`指定了转发规则，`key`为匹配`host`的正则表达式，`value`为目标地址， 格式为 `[protol]://[certName]:[SNI]@[Host]:[Port]`。 tls即通过加密tls连接后端（会忽略证书错误），tcp直接不加密连接。direct直接通过sni转发请求，不做tls的握手解析。
+`Rules`指定了转发规则，`key`为匹配`host`的正则表达式，`value`为目标地址， 格式为 `[protol]://[certName]@[Host]:[Port]?[ForceSNI=XXX]&[BypassSNI=true]&[CheckClientCert=true]`。 
+
+Protol类型：
+* tls即通过加密tls连接后端（会忽略证书错误）
+* tcp通过tcp连接后端。
+* direct直接转发所有tcp请求，不做tls的握手解析。
+
+参数：
+* `ForceSNI=XXX` 只在`protol=tls`时有效，强制指定连接后端时使用的SNI，无视`BypassSNI=true`参数
+* `BypassSNI=true` 转发SNI请求，忽略`Host`中的SNI
+* `CheckClientCert=true` 检查客户端证书
