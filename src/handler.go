@@ -104,8 +104,7 @@ func (s *tlsServer) handle(c net.Conn) {
 		switch u.Scheme {
 		case "direct":
 			lc = cc
-		case "tcp":
-		case "tls":
+		case "tcp", "tls":
 			config := s.cm.get(u.User.Username())
 			if config == nil {
 				log.Warn().Err(err).Msg("Missing cert config.")
@@ -145,8 +144,7 @@ func (s *tlsServer) handle(c net.Conn) {
 
 func (s *tlsServer) dail(u *url.URL, requestSNI string) (net.Conn, error) {
 	switch u.Scheme {
-	case "direct":
-	case "tcp":
+	case "direct", "tcp":
 		return net.DialTimeout("tcp", u.Host, 5*time.Second)
 	case "tls":
 		if u.Query().Get("ForceSNI") != "" {
