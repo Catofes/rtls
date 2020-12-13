@@ -100,7 +100,20 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 	}
 	if u := s.getConfig(host); u != nil {
-		var lc net.Conn
+		var lc, rc net.Conn
+		var h2 bool
+		if u.Query().Get("h2") == "true" && u.Scheme == "tls" {
+			tc, err := s.dail(u, host, true)
+			if err != nil {
+				log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
+				return
+			}
+			if tc.(*tls.Conn).ConnectionState().NegotiatedProtocol == "h2" {
+				h2 = true
+				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 half connect.")
+				rc = tc
+			}
+		}
 		switch u.Scheme {
 		case "direct":
 			lc = cc
@@ -117,11 +130,17 @@ func (s *tlsServer) handle(c net.Conn) {
 			if u.Query().Get("CheckClientCert") == "true" {
 				c.ClientCAs = s.ca
 			}
-			if u.Query().Get("h2") == "true" {
-				c.NextProtos = []string{"h2", "http/1.1"}
+			if h2 {
+				c.NextProtos = []string{"h2"}
 			}
 			tc = tls.Server(cc, c)
 			err := tc.Handshake()
+			if tc.ConnectionState().NegotiatedProtocol == "h2" {
+				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect success.")
+				h2 = true
+			} else {
+				h2 = false
+			}
 			if err != nil {
 				log.Warn().Err(err).Msg("HandShake error.")
 				return
@@ -130,7 +149,10 @@ func (s *tlsServer) handle(c net.Conn) {
 			lc = tc
 		}
 		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Dail.")
-		rc, err := s.dail(u, host)
+		if !h2 {
+			log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect failed.")
+			rc, err = s.dail(u, host, false)
+		}
 		if err != nil {
 			log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
 			return
@@ -143,7 +165,7 @@ func (s *tlsServer) handle(c net.Conn) {
 	}
 }
 
-func (s *tlsServer) dail(u *url.URL, requestSNI string) (net.Conn, error) {
+func (s *tlsServer) dail(u *url.URL, requestSNI string, h2 bool) (net.Conn, error) {
 	switch u.Scheme {
 	case "direct", "tcp":
 		return net.DialTimeout("tcp", u.Host, 5*time.Second)
@@ -155,8 +177,8 @@ func (s *tlsServer) dail(u *url.URL, requestSNI string) (net.Conn, error) {
 		if u.Query().Get("BypassSNI") == "true" {
 			c.ServerName = requestSNI
 		}
-		if u.Query().Get("h2") == "true" {
-			c.NextProtos = []string{"h2", "http/1.1"}
+		if h2 {
+			c.NextProtos = []string{"h2"}
 		}
 		return tls.Dial("tcp", u.Host, &c)
 	}
