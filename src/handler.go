@@ -110,16 +110,17 @@ func (s *tlsServer) handle(c net.Conn) {
 				log.Warn().Err(err).Msg("Missing cert config.")
 				return
 			}
+			c := &tls.Config{
+				Certificates: config.Certificates,
+			}
 			var tc *tls.Conn
 			if u.Query().Get("CheckClientCert") == "true" {
-				cconfig := &tls.Config{
-					Certificates: config.Certificates,
-					ClientCAs:    s.ca,
-				}
-				tc = tls.Server(cc, cconfig)
-			} else {
-				tc = tls.Server(cc, config)
+				c.ClientCAs = s.ca
 			}
+			if u.Query().Get("h2") == "true" {
+				c.NextProtos = []string{"h2", "http/1.1"}
+			}
+			tc = tls.Server(cc, c)
 			err := tc.Handshake()
 			if err != nil {
 				log.Warn().Err(err).Msg("HandShake error.")
@@ -147,13 +148,17 @@ func (s *tlsServer) dail(u *url.URL, requestSNI string) (net.Conn, error) {
 	case "direct", "tcp":
 		return net.DialTimeout("tcp", u.Host, 5*time.Second)
 	case "tls":
+		c := tls.Config{InsecureSkipVerify: true}
 		if u.Query().Get("ForceSNI") != "" {
-			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: u.Query().Get("ForceSNI"), InsecureSkipVerify: true})
+			c.ServerName = u.Query().Get("ForceSNI")
 		}
 		if u.Query().Get("BypassSNI") == "true" {
-			return tls.Dial("tcp", u.Host, &tls.Config{ServerName: requestSNI, InsecureSkipVerify: true})
+			c.ServerName = requestSNI
 		}
-		return tls.Dial("tcp", u.Host, s.tlsConfig)
+		if u.Query().Get("h2") == "true" {
+			c.NextProtos = []string{"h2", "http/1.1"}
+		}
+		return tls.Dial("tcp", u.Host, &c)
 	}
 	return nil, errors.New("dail failed, unknow host type")
 }

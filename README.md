@@ -19,6 +19,7 @@ Let's Encrypt 的泛域名证书需要使用DNS验证，以及一些节点无法
 	"Listen": "0.0.0.0:443",
 	"CertsPath": "./certs",
 	"Debug": true,
+	"Fallback": "URL",
 	"LogBufferLen": 10000,
 	"Rules": [
 		{
