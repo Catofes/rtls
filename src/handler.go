@@ -150,7 +150,9 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Dail.")
 		if !h2 {
-			log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect failed.")
+			if u.Query().Get("h2") == "true" {
+				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect failed.")
+			}
 			rc, err = s.dail(u, host, false)
 		}
 		if err != nil {
