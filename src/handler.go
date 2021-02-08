@@ -100,6 +100,7 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 	}
 	if u := s.getConfig(host); u != nil {
+		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Start dail.")
 		var lc, rc net.Conn
 		var h2 bool
 		if u.Query().Get("h2") == "true" && u.Scheme == "tls" {
@@ -136,7 +137,7 @@ func (s *tlsServer) handle(c net.Conn) {
 			tc = tls.Server(cc, c)
 			err := tc.Handshake()
 			if tc.ConnectionState().NegotiatedProtocol == "h2" {
-				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect success.")
+				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("h2 connect success.")
 				h2 = true
 			} else {
 				h2 = false
@@ -148,7 +149,6 @@ func (s *tlsServer) handle(c net.Conn) {
 			defer tc.Close()
 			lc = tc
 		}
-		log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("Dail.")
 		if !h2 {
 			if u.Query().Get("h2") == "true" {
 				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect failed.")
