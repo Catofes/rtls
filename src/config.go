@@ -16,6 +16,7 @@ type certConfig struct {
 
 type config struct {
 	Listen       string
+	Listens      []string
 	CertGateway  string
 	CertsPath    string
 	Debug        bool
@@ -29,7 +30,8 @@ type config struct {
 }
 
 func (s *config) load(path string) *config {
-	s.Listen = "0.0.0.0:443"
+	s.Listen = "[::]:443"
+	s.Listens = make([]string, 0)
 	s.CertGateway = "https://cert.catofes.com/"
 	s.LogBufferLen = 10000
 

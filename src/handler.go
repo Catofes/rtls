@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -70,18 +71,30 @@ func (s *tlsServer) init() *tlsServer {
 }
 
 func (s *tlsServer) listen() {
-	listener, err := net.Listen("tcp", s.config.Listen)
-	if err != nil {
-		s.log.Fatal().Err(err).Send()
-	}
-	for {
-		conn, err := listener.Accept()
+	l := func(addr string, wg *sync.WaitGroup) {
+		listener, err := net.Listen("tcp", addr)
 		if err != nil {
-			s.log.Warn().Err(err).Msg("Accept error.")
-			continue
+			s.log.Fatal().Err(err).Send()
 		}
-		go s.handle(conn)
+		wg.Add(1)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				s.log.Warn().Err(err).Msg("Accept error.")
+				continue
+			}
+			go s.handle(conn)
+		}
 	}
+	wg := &sync.WaitGroup{}
+	if len(s.config.Listens) > 0 {
+		for _, v := range s.config.Listens {
+			go l(v, wg)
+		}
+	} else {
+		go l(s.config.Listen, wg)
+	}
+	wg.Wait()
 }
 
 func (s *tlsServer) handle(c net.Conn) {
