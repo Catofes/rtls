@@ -71,12 +71,12 @@ func (s *tlsServer) init() *tlsServer {
 }
 
 func (s *tlsServer) listen() {
-	l := func(addr string, wg *sync.WaitGroup) {
+	l := func(addr string) {
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
 			s.log.Fatal().Err(err).Send()
 		}
-		wg.Add(1)
+		s.log.Info().Str("Listen", addr).Send()
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -89,10 +89,12 @@ func (s *tlsServer) listen() {
 	wg := &sync.WaitGroup{}
 	if len(s.config.Listens) > 0 {
 		for _, v := range s.config.Listens {
-			go l(v, wg)
+			wg.Add(1)
+			go l(v)
 		}
 	} else {
-		go l(s.config.Listen, wg)
+		wg.Add(1)
+		go l(s.config.Listen)
 	}
 	wg.Wait()
 }

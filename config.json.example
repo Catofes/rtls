@@ -17,7 +17,7 @@
 	"Certs":{
 		"a.cert": {
 			"UUID": "d6ee5e46-d159-cccc-aaaa-bbbbbbbbbbbb"
-		}
+		},
         "b.cert": {
             "UUID": "d6ee5e46-d159-cccc-aaaa-dddddddddddd"
         }
