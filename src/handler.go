@@ -124,6 +124,7 @@ func (s *tlsServer) handle(c net.Conn) {
 				log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
 				return
 			}
+			defer tc.Close()
 			if tc.(*tls.Conn).ConnectionState().NegotiatedProtocol == "h2" {
 				h2 = true
 				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 half connect.")
@@ -144,6 +145,7 @@ func (s *tlsServer) handle(c net.Conn) {
 			}
 			var tc *tls.Conn
 			if u.Query().Get("CheckClientCert") == "true" {
+				c.ClientAuth = tls.RequireAndVerifyClientCert
 				c.ClientCAs = s.ca
 			}
 			if h2 {
@@ -151,30 +153,29 @@ func (s *tlsServer) handle(c net.Conn) {
 			}
 			tc = tls.Server(cc, c)
 			err := tc.Handshake()
+			//defer tc.Close()
+			if err != nil {
+				log.Warn().Err(err).Msg("HandShake error.")
+				return
+			}
 			if tc.ConnectionState().NegotiatedProtocol == "h2" {
 				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Msg("h2 connect success.")
 				h2 = true
 			} else {
 				h2 = false
 			}
-			if err != nil {
-				log.Warn().Err(err).Msg("HandShake error.")
-				return
-			}
-			defer tc.Close()
 			lc = tc
 		}
 		if !h2 {
 			if u.Query().Get("h2") == "true" {
 				log.Debug().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("h2 connect failed.")
 			}
-			rc, err = s.dail(u, host, false)
+			if rc, err = s.dail(u, host, false); err != nil {
+				log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
+				return
+			}
+			defer rc.Close()
 		}
-		if err != nil {
-			log.Warn().Str("To", host).Str("Dail", u.Hostname()).Err(err).Msg("Dial error.")
-			return
-		}
-		defer rc.Close()
 		err = s.pipe(lc, rc)
 		if err != nil {
 			log.Debug().Err(err).Msg("Pipe return error.")
@@ -217,16 +218,16 @@ func (s *tlsServer) pipe(a, b net.Conn) error {
 	done := make(chan error, 1)
 	cp := func(r, w net.Conn) {
 		_, err := io.Copy(w, r)
-		switch w.(type) {
-		case *net.TCPConn:
-			w.(*net.TCPConn).CloseWrite()
-		case *tls.Conn:
-			w.(*tls.Conn).CloseWrite()
-		}
-		switch r.(type) {
-		case *net.TCPConn:
-			r.(*net.TCPConn).CloseRead()
-		}
+		// switch w.(type) {
+		// case *net.TCPConn:
+		// 	w.(*net.TCPConn).CloseWrite()
+		// case *tls.Conn:
+		// 	w.(*tls.Conn).CloseWrite()
+		// }
+		// switch r.(type) {
+		// case *net.TCPConn:
+		// 	r.(*net.TCPConn).CloseRead()
+		// }
 		done <- err
 	}
 	go cp(a, b)
