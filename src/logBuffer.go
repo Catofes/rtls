@@ -8,7 +8,7 @@ type logBuffer struct {
 
 func (s *logBuffer) init(len int) *logBuffer {
 	s.data = make([]string, 0)
-	s.in = make(chan []byte, 0)
+	s.in = make(chan []byte)
 	s.len = len
 	go s.loop()
 	return s
@@ -26,9 +26,9 @@ func (s *logBuffer) loop() {
 	}
 }
 
-func (s *logBuffer) getAll() []string {
-	return s.data
-}
+// func (s *logBuffer) getAll() []string {
+// 	return s.data
+// }
 
 func (s *logBuffer) Write(p []byte) (n int, err error) {
 	s.in <- p

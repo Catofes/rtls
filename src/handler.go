@@ -57,7 +57,7 @@ func (s *tlsServer) init() *tlsServer {
 			s.log.Fatal().Err(err).Msg("Read client ca cert failed.")
 		}
 		certDERBlock, _ := pem.Decode(data)
-		if certDERBlock == nil {
+		if certDERBlock == nil || certDERBlock.Bytes == nil {
 			s.log.Fatal().Msg("Parse client ca failed.")
 		}
 		cert, err := x509.ParseCertificate(certDERBlock.Bytes)

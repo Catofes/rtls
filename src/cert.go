@@ -16,18 +16,18 @@ import (
 
 type cert struct {
 	config
-	domain     string
-	uuid       string
-	chain      []x509.Certificate
-	cert       *x509.Certificate
-	chainRaw   []byte
-	data       string
-	key        interface{}
-	keyRaw     []byte
-	mutex      sync.Mutex
-	lastUpdate time.Time
-	log        zerolog.Logger
-	tlsConfig  *tls.Config
+	domain   string
+	uuid     string
+	chain    []x509.Certificate
+	cert     *x509.Certificate
+	chainRaw []byte
+	data     string
+	key      interface{}
+	keyRaw   []byte
+	mutex    sync.Mutex
+	//lastUpdate time.Time
+	log       zerolog.Logger
+	tlsConfig *tls.Config
 }
 
 func (s *cert) init(domain string, l zerolog.Logger) *cert {

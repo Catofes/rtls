@@ -26,7 +26,7 @@ var TLSHeaderLength = 5
  * go ahead and give us the SNI Name they want. */
 func GetHostname(data []byte) (string, error) {
 	if len(data) == 0 || data[0] != 0x16 {
-		return "", fmt.Errorf("Doesn't look like a TLS Client Hello")
+		return "", fmt.Errorf("doesn't look like a TLS Client Hello")
 	}
 
 	extensions, err := GetExtensionBlock(data)
@@ -53,17 +53,17 @@ func GetSNIBlock(data []byte) ([]byte, error) {
 		if index >= len(data) {
 			break
 		}
-		length := int((data[index] << 8) + data[index+1])
+		length := int(data[index])<<8 + int(data[index+1])
 		endIndex := index + 2 + length
 		if data[index+2] == 0x00 { /* SNI */
 			sni := data[index+3:]
-			sniLength := int((sni[0] << 8) + sni[1])
+			sniLength := int(sni[0])<<8 + int(sni[1])
 			return sni[2 : sniLength+2], nil
 		}
 		index = endIndex
 	}
 	return []byte{}, fmt.Errorf(
-		"Finished parsing the SN block without finding an SNI",
+		"finished parsing the SN block without finding an SNI",
 	)
 }
 
@@ -72,12 +72,12 @@ func GetSNBlock(data []byte) ([]byte, error) {
 	index := 0
 
 	if len(data) < 2 {
-		return []byte{}, fmt.Errorf("Not enough bytes to be an SN block")
+		return []byte{}, fmt.Errorf("not enough bytes to be an SN block")
 	}
 
-	extensionLength := int((data[index] << 8) + data[index+1])
+	extensionLength := int(data[index])<<8 + int(data[index+1])
 	if extensionLength+2 > len(data) {
-		return []byte{}, fmt.Errorf("Extension looks bonkers")
+		return []byte{}, fmt.Errorf("extension looks bonkers")
 	}
 	data = data[2 : extensionLength+2]
 
@@ -85,7 +85,7 @@ func GetSNBlock(data []byte) ([]byte, error) {
 		if index+3 >= len(data) {
 			break
 		}
-		length := int((data[index+2] << 8) + data[index+3])
+		length := int(data[index+2])<<8 + int(data[index+3])
 		endIndex := index + 4 + length
 		if data[index] == 0x00 && data[index+1] == 0x00 {
 			return data[index+4 : endIndex], nil
@@ -95,7 +95,7 @@ func GetSNBlock(data []byte) ([]byte, error) {
 	}
 
 	return []byte{}, fmt.Errorf(
-		"Finished parsing the Extension block without finding an SN block",
+		"finished parsing the Extension block without finding an SN block",
 	)
 }
 
@@ -110,33 +110,33 @@ func GetExtensionBlock(data []byte) ([]byte, error) {
 	var index = TLSHeaderLength + 38
 
 	if len(data) <= index+1 {
-		return []byte{}, fmt.Errorf("Not enough bits to be a Client Hello")
+		return []byte{}, fmt.Errorf("not enough bits to be a Client Hello")
 	}
 
 	/* Index is at SessionID Length bit */
 	if newIndex := index + 1 + int(data[index]); (newIndex + 2) < len(data) {
 		index = newIndex
 	} else {
-		return []byte{}, fmt.Errorf("Not enough bytes for the SessionID")
+		return []byte{}, fmt.Errorf("not enough bytes for the SessionID")
 	}
 
 	/* Index is at Cipher List Length bits */
-	if newIndex := (index + 2 + int((data[index]<<8)+data[index+1])); (newIndex + 1) < len(data) {
+	if newIndex := index + 2 + int(data[index])<<8 + int(data[index+1]); (newIndex + 1) < len(data) {
 		index = newIndex
 	} else {
-		return []byte{}, fmt.Errorf("Not enough bytes for the Cipher List")
+		return []byte{}, fmt.Errorf("not enough bytes for the Cipher List")
 	}
 
 	/* Index is now at the compression length bit */
 	if newIndex := index + 1 + int(data[index]); newIndex < len(data) {
 		index = newIndex
 	} else {
-		return []byte{}, fmt.Errorf("Not enough bytes for the compression length")
+		return []byte{}, fmt.Errorf("not enough bytes for the compression length")
 	}
 
 	/* Now we're at the Extension start */
 	if len(data[index:]) == 0 {
-		return nil, fmt.Errorf("No extensions")
+		return nil, fmt.Errorf("no extensions")
 	}
 	return data[index:], nil
 }
