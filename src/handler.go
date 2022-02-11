@@ -218,16 +218,12 @@ func (s *tlsServer) pipe(a, b net.Conn) error {
 	done := make(chan error, 1)
 	cp := func(r, w net.Conn) {
 		_, err := io.Copy(w, r)
-		// switch w.(type) {
-		// case *net.TCPConn:
-		// 	w.(*net.TCPConn).CloseWrite()
-		// case *tls.Conn:
-		// 	w.(*tls.Conn).CloseWrite()
-		// }
-		// switch r.(type) {
-		// case *net.TCPConn:
-		// 	r.(*net.TCPConn).CloseRead()
-		// }
+		switch w := w.(type) {
+		case *net.TCPConn:
+			w.CloseWrite()
+		case *tls.Conn:
+			w.CloseWrite()
+		}
 		done <- err
 	}
 	go cp(a, b)
