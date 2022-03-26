@@ -14,7 +14,7 @@ type certManager struct {
 
 //todo
 func (s *certManager) init() *certManager {
-	s.log = s.config.logger.With().Str("module", "certManager").Logger()
+	s.log = s.config.logger.With().Str("M", "cm").Logger()
 	s.certs = make(map[string]*cert)
 	for k, v := range s.config.Certs {
 		c := &cert{

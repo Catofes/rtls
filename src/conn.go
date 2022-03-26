@@ -11,20 +11,21 @@ type conn struct {
 	c   net.Conn
 	b   []byte
 	log zerolog.Logger
+	t   int64
 }
 
 func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 	s.c = c
 	s.b = make([]byte, 1024)
-	s.log = l
+	s.t = time.Now().UnixNano() / 1000
+	s.log = l.With().Int64("I", s.t).Logger()
 	return s
 }
 
 func (s *conn) parseSNI() (string, error) {
-	//s.log.Debug().Msg("Handle connection.")
 	n, err := s.c.Read(s.b)
 	if err != nil {
-		s.log.Debug().Err(err).Msg("Read error.")
+		s.log.Warn().Err(err).Msg("Read error.")
 		return "", err
 	}
 	s.b = s.b[:n]
@@ -33,7 +34,7 @@ func (s *conn) parseSNI() (string, error) {
 		s.log.Warn().Err(err).Msg("ParseSNI error.")
 		return "", err
 	}
-	s.log.Debug().Str("From", s.RemoteAddr().String()).Str("SNI", host).Msg("Parse SNI success.")
+	s.log.Debug().Str("S", host).Msg("Parse SNI success.")
 	return host, nil
 }
 
