@@ -16,7 +16,7 @@ type conn struct {
 
 func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 	s.c = c
-	s.b = make([]byte, 1024)
+	s.b = make([]byte, 4096)
 	s.t = time.Now().UnixNano() / 1000
 	s.log = l.With().Int64("I", s.t).Logger()
 	return s
