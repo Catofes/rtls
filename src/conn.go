@@ -47,6 +47,7 @@ func (s *conn) fetchHeader() (int,error) {
 			}
 			n = n + nn
 		}
+		s.c.SetReadDeadline(time.Time{})
 	}
 	return n, nil
 }
