@@ -74,7 +74,6 @@ func GetSNBlock(data []byte) ([]byte, error) {
 	if len(data) < 2 {
 		return []byte{}, fmt.Errorf("not enough bytes to be an SN block")
 	}
-
 	extensionLength := int(data[index])<<8 + int(data[index+1])
 	if extensionLength+2 > len(data) {
 		return []byte{}, fmt.Errorf("extension looks bonkers")

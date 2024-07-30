@@ -3,6 +3,7 @@ package rtls
 import (
 	"net"
 	"time"
+	"fmt"
 
 	"github.com/rs/zerolog"
 )
@@ -16,14 +17,43 @@ type conn struct {
 
 func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 	s.c = c
-	s.b = make([]byte, 16384)
+	s.b = make([]byte, 4096)
 	s.t = time.Now().UnixNano() / 1000
 	s.log = l.With().Int64("I", s.t).Logger()
 	return s
 }
 
-func (s *conn) parseSNI() (string, error) {
+func (s *conn) fetchHeader() (int,error) {
 	n, err := s.c.Read(s.b)
+	if err != nil{
+		return n, err
+	}
+	if s.b[0] != 22 {
+		return n, fmt.Errorf("first package seems not TLS handshake")
+	}
+	packageLength := int(s.b[3])<<8 + int(s.b[4])
+	if n < packageLength + 5 {
+		s.log.Debug().Msg("First package not long enough.")
+		s.c.SetReadDeadline(time.Now().Add(1 * time.Second))
+		for n < packageLength + 5 {
+			nn, err := s.c.Read(s.b[n:])
+			s.log.Debug().Msgf("Reread %d bytes.", nn)
+			if err !=nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					return n+nn, fmt.Errorf("read timeout")
+				} else {
+					return n+nn, err
+				}
+			}
+			n = n + nn
+		}
+	}
+	return n, nil
+}
+
+func (s *conn) parseSNI() (string, error) {
+	//n, err := s.c.Read(s.b)
+	n, err := s.fetchHeader()
 	if err != nil {
 		s.log.Warn().Err(err).Msg("Read error.")
 		return "", err
