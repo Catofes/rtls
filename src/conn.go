@@ -24,7 +24,9 @@ func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 }
 
 func (s *conn) fetchHeader() (int, error) {
+	s.c.SetReadDeadline(time.Now().Add(15 * time.Second))
 	n, err := s.c.Read(s.b)
+	s.c.SetReadDeadline(time.Time{})
 	if err != nil {
 		return n, err
 	}

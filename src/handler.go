@@ -25,7 +25,7 @@ type tlsServer struct {
 	ca        *x509.CertPool
 }
 
-//todo
+// todo
 func (s *tlsServer) init() *tlsServer {
 	s.cm = (&certManager{config: s.config}).init()
 	s.log = s.config.logger.With().Str("M", "H").Logger()
@@ -151,8 +151,11 @@ func (s *tlsServer) handle(c net.Conn) {
 			if h2 {
 				c.NextProtos = []string{"h2"}
 			}
+			log.Info().Str("T", host).Str("D", u.Hostname()).Msg("Dail step2.")
 			tc = tls.Server(cc, c)
+			cc.SetDeadline(time.Now().Add(15 * time.Second))
 			err := tc.Handshake()
+			cc.SetDeadline(time.Time{})
 			//defer tc.Close()
 			if err != nil {
 				log.Warn().Err(err).Msg("HandShake error.")
@@ -176,6 +179,7 @@ func (s *tlsServer) handle(c net.Conn) {
 			}
 			defer rc.Close()
 		}
+		log.Info().Str("T", host).Str("D", u.Hostname()).Msg("Dail success.")
 		s.pipe(lc, rc, cc.log)
 	}
 }
@@ -195,7 +199,8 @@ func (s *tlsServer) dail(u *url.URL, requestSNI string, h2 bool) (net.Conn, erro
 		if h2 {
 			c.NextProtos = []string{"h2"}
 		}
-		return tls.Dial("tcp", u.Host, &c)
+		dialer := &net.Dialer{Timeout: 10 * time.Second}
+		return tls.DialWithDialer(dialer, "tcp", u.Host, &c)
 	}
 	return nil, errors.New("dail failed, unknow host type")
 }
@@ -248,11 +253,12 @@ func mycopy(dst io.Writer, src io.Reader, l zerolog.Logger) (written int64, err 
 }
 
 func (s *tlsServer) pipe(a, b net.Conn, log zerolog.Logger) error {
-	done := make(chan error, 1)
+	done := make(chan error, 2)
 	cp := func(r, w net.Conn, l zerolog.Logger) {
-		_, err := io.Copy(w, r)
+		//n, err := mycopy(w, r, l)
+		n, err := io.Copy(w, r)
 		if err != nil {
-			//l.Debug().Int64("Len", n).Err(err).Send()
+			l.Debug().Int64("Len", n).Err(err).Send()
 			w.Close()
 			r.Close()
 		} else {
@@ -262,16 +268,22 @@ func (s *tlsServer) pipe(a, b net.Conn, log zerolog.Logger) error {
 			case *tls.Conn:
 				w.CloseWrite()
 			}
-			//l.Debug().Int64("Len", n).Send()
-			//l.Debug().Msg("Half Close")
-			done <- err
+			switch r := r.(type) {
+			case *net.TCPConn:
+				r.CloseRead()
+			}
+			l.Debug().Int64("Len", n).Send()
+			l.Debug().Msg("Half Close")
 		}
+		done <- err
 	}
-	//log.Debug().Str("a", a.RemoteAddr().String()).Str("b", b.RemoteAddr().String()).Send()
+	log.Debug().Str("a", a.RemoteAddr().String()).Str("b", b.RemoteAddr().String()).Send()
 	go cp(a, b, log.With().Str("D", "Up").Logger())
 	go cp(b, a, log.With().Str("D", "Down").Logger())
 	<-done
 	<-done
-	//log.Debug().Msg("Close")
+	a.Close()
+	b.Close()
+	log.Debug().Msg("Close")
 	return nil
 }
