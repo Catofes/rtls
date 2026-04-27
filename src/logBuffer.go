@@ -8,7 +8,7 @@ type logBuffer struct {
 
 func (s *logBuffer) init(len int) *logBuffer {
 	s.data = make([]string, 0)
-	s.in = make(chan []byte)
+	s.in = make(chan []byte, 256)
 	s.len = len
 	go s.loop()
 	return s

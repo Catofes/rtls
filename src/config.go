@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -45,10 +46,13 @@ func (s *config) load(path string) *config {
 	}
 
 	s.logBuffer = (&logBuffer{}).init(s.LogBufferLen)
-	s.logger = zerolog.New(io.MultiWriter(os.Stdout, s.logBuffer))
 
 	if s.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+		s.logger = zerolog.New(io.MultiWriter(consoleWriter, s.logBuffer)).With().Timestamp().Logger()
+	} else {
+		s.logger = zerolog.New(io.MultiWriter(os.Stdout, s.logBuffer)).With().Timestamp().Logger()
 	}
 	return s
 }

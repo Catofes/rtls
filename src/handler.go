@@ -28,7 +28,7 @@ type tlsServer struct {
 // todo
 func (s *tlsServer) init() *tlsServer {
 	s.cm = (&certManager{config: s.config}).init()
-	s.log = s.config.logger.With().Str("M", "H").Logger()
+	s.log = s.config.logger.With().Str("module", "handler").Logger()
 	s.rules = make([]map[string]*url.URL, 0)
 	s.tlsConfig = &tls.Config{InsecureSkipVerify: true}
 	if s.config.Fallback != "" {
@@ -100,7 +100,7 @@ func (s *tlsServer) listen() {
 }
 
 func (s *tlsServer) handle(c net.Conn) {
-	log := s.log.With().Str("F", c.RemoteAddr().String()).Logger()
+	log := s.log.With().Str("client", c.RemoteAddr().String()).Logger()
 	cc := (&conn{}).init(c, log)
 	log = cc.log
 	defer cc.Close()
@@ -115,19 +115,19 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 	}
 	if u := s.getConfig(host); u != nil {
-		log.Info().Str("T", host).Str("D", u.Hostname()).Msg("Start dail.")
+		log.Info().Str("sni", host).Str("dst", u.Hostname()).Msg("Start dial.")
 		var lc, rc net.Conn
 		var h2 bool
 		if u.Query().Get("h2") == "true" && u.Scheme == "tls" {
 			tc, err := s.dail(u, host, true)
 			if err != nil {
-				log.Warn().Str("T", host).Str("D", u.Hostname()).Err(err).Msg("Dial error.")
+				log.Warn().Str("sni", host).Str("dst", u.Hostname()).Err(err).Msg("Dial error.")
 				return
 			}
 			defer tc.Close()
 			if tc.(*tls.Conn).ConnectionState().NegotiatedProtocol == "h2" {
 				h2 = true
-				log.Debug().Str("T", host).Str("D", u.Hostname()).Err(err).Msg("h2 half connect.")
+				log.Debug().Str("sni", host).Str("dst", u.Hostname()).Msg("h2 upstream connected.")
 				rc = tc
 			}
 		}
@@ -137,7 +137,7 @@ func (s *tlsServer) handle(c net.Conn) {
 		case "tcp", "tls":
 			config := s.cm.get(u.User.Username())
 			if config == nil {
-				log.Warn().Err(err).Msg("Missing cert config.")
+				log.Warn().Msg("Missing cert config.")
 				return
 			}
 			c := &tls.Config{
@@ -151,18 +151,18 @@ func (s *tlsServer) handle(c net.Conn) {
 			if h2 {
 				c.NextProtos = []string{"h2"}
 			}
-			log.Info().Str("T", host).Str("D", u.Hostname()).Msg("Dail step2.")
+			log.Info().Str("sni", host).Str("dst", u.Hostname()).Msg("TLS handshake with client.")
 			tc = tls.Server(cc, c)
 			cc.SetDeadline(time.Now().Add(15 * time.Second))
 			err := tc.Handshake()
 			cc.SetDeadline(time.Time{})
 			//defer tc.Close()
 			if err != nil {
-				log.Warn().Err(err).Msg("HandShake error.")
+				log.Warn().Err(err).Msg("TLS handshake error.")
 				return
 			}
 			if tc.ConnectionState().NegotiatedProtocol == "h2" {
-				log.Debug().Str("T", host).Str("D", u.Hostname()).Msg("h2 connect success.")
+				log.Debug().Str("sni", host).Str("dst", u.Hostname()).Msg("h2 negotiated with client.")
 				h2 = true
 			} else {
 				h2 = false
@@ -171,15 +171,15 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 		if !h2 {
 			if u.Query().Get("h2") == "true" {
-				log.Debug().Str("T", host).Str("D", u.Hostname()).Err(err).Msg("h2 connect failed.")
+				log.Debug().Str("sni", host).Str("dst", u.Hostname()).Msg("h2 not negotiated, falling back to http/1.1.")
 			}
 			if rc, err = s.dail(u, host, false); err != nil {
-				log.Warn().Str("T", host).Str("D", u.Hostname()).Err(err).Msg("Dial error.")
+				log.Warn().Str("sni", host).Str("dst", u.Hostname()).Err(err).Msg("Dial error.")
 				return
 			}
 			defer rc.Close()
 		}
-		log.Info().Str("T", host).Str("D", u.Hostname()).Msg("Dail success.")
+		log.Info().Str("sni", host).Str("dst", u.Hostname()).Msg("Tunnel established.")
 		s.pipe(lc, rc, cc.log)
 	}
 }
@@ -258,7 +258,7 @@ func (s *tlsServer) pipe(a, b net.Conn, log zerolog.Logger) error {
 		//n, err := mycopy(w, r, l)
 		n, err := io.Copy(w, r)
 		if err != nil {
-			l.Debug().Int64("Len", n).Err(err).Send()
+			l.Debug().Int64("bytes", n).Err(err).Msg("Copy error, closing.")
 			w.Close()
 			r.Close()
 		} else {
@@ -272,18 +272,17 @@ func (s *tlsServer) pipe(a, b net.Conn, log zerolog.Logger) error {
 			case *net.TCPConn:
 				r.CloseRead()
 			}
-			l.Debug().Int64("Len", n).Send()
-			l.Debug().Msg("Half Close")
+			l.Debug().Int64("bytes", n).Msg("Half close.")
 		}
 		done <- err
 	}
-	log.Debug().Str("a", a.RemoteAddr().String()).Str("b", b.RemoteAddr().String()).Send()
-	go cp(a, b, log.With().Str("D", "Up").Logger())
-	go cp(b, a, log.With().Str("D", "Down").Logger())
+	log.Debug().Str("a", a.RemoteAddr().String()).Str("b", b.RemoteAddr().String()).Msg("Piping connections.")
+	go cp(a, b, log.With().Str("dir", "upstream").Logger())
+	go cp(b, a, log.With().Str("dir", "downstream").Logger())
 	<-done
 	<-done
 	a.Close()
 	b.Close()
-	log.Debug().Msg("Close")
+	log.Debug().Msg("Tunnel closed.")
 	return nil
 }

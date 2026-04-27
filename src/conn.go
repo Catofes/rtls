@@ -19,7 +19,7 @@ func (s *conn) init(c net.Conn, l zerolog.Logger) *conn {
 	s.c = c
 	s.b = make([]byte, 16392)
 	s.t = time.Now().UnixNano() / 1000
-	s.log = l.With().Int64("I", s.t).Logger()
+	s.log = l.With().Int64("conn_id", s.t).Logger()
 	return s
 }
 
@@ -70,7 +70,7 @@ func (s *conn) parseSNI() (string, error) {
 		s.log.Warn().Err(err).Msg("ParseSNI error.")
 		return "", err
 	}
-	s.log.Debug().Str("S", host).Msg("Parse SNI success.")
+	s.log.Debug().Str("sni", host).Msg("Parse SNI success.")
 	return host, nil
 }
 

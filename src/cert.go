@@ -98,6 +98,7 @@ func (s *cert) loadFromWeb() error {
 	resp, err := resty.New().R().Get(url)
 	if err != nil {
 		s.log.Debug().Str("option", "download cert").Err(err).Send()
+		return err
 	}
 	if resp.StatusCode() != 200 && resp.StatusCode() != 204 {
 		s.log.Debug().Str("option", "download cert").Msg("not 2xx response")
@@ -145,17 +146,17 @@ func (s *cert) loadFromPEM(data string) error {
 	}
 
 	if s.cert != nil && cert.SerialNumber.String() == s.cert.SerialNumber.String() {
-		l.Debug().Str("SN", cert.SerialNumber.String()).Msg("Same cert, ignore.")
+		l.Debug().Str("serial", cert.SerialNumber.String()).Msg("Same cert, ignore.")
 		return nil
 	}
-	l.Debug().Str("SN", cert.SerialNumber.String()).Msg("New cert, update.")
+	l.Debug().Str("serial", cert.SerialNumber.String()).Msg("New cert, update.")
 	s.data = data
 	s.chain = chain
 	s.cert = cert
 	s.chainRaw = []byte(s.data)
 	keyPair, err := tls.X509KeyPair(s.chainRaw, s.keyRaw)
 	if err != nil {
-		s.log.Debug().Str("option", "prepair key pair").Err(err).Send()
+		s.log.Debug().Str("option", "prepare key pair").Err(err).Send()
 		return err
 	}
 	certs := make([]tls.Certificate, 0)
