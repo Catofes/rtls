@@ -1,6 +1,7 @@
 package rtls
 
 import (
+	"context"
 	"crypto/tls"
 
 	"github.com/rs/zerolog"
@@ -13,7 +14,7 @@ type certManager struct {
 }
 
 //todo
-func (s *certManager) init() *certManager {
+func (s *certManager) init(ctx context.Context) *certManager {
 	s.log = s.config.logger.With().Str("module", "certManager").Logger()
 	s.certs = make(map[string]*cert)
 	for k, v := range s.config.Certs {
@@ -21,7 +22,7 @@ func (s *certManager) init() *certManager {
 			config: s.config,
 			uuid:   v.UUID,
 		}
-		c = c.init(k, s.log)
+		c = c.init(ctx, k, s.log)
 		s.certs[k] = c
 	}
 	return s

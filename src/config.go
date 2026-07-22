@@ -18,10 +18,12 @@ type certConfig struct {
 type config struct {
 	Listen       string
 	Listens      []string
+	WebListen    string // HTTP management API listen address, e.g. "127.0.0.1:8080"; empty = disabled
 	CertGateway  string
 	CertsPath    string
 	Debug        bool
 	LogBufferLen int
+	IdleTimeout  int // seconds; 0 = disabled
 	Fallback     string
 	Rules        []map[string]string
 	Certs        map[string]certConfig

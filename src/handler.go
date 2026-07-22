@@ -1,6 +1,7 @@
 package rtls
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -16,40 +17,56 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// idleConn resets the read deadline before every Read so that connections
+// idle for longer than the given duration are automatically closed.
+type idleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleConn) Read(b []byte) (int, error) {
+	c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Read(b)
+}
+
+type rule struct {
+	pattern *regexp.Regexp
+	target  *url.URL
+}
+
 type tlsServer struct {
 	config
 	cm        *certManager
 	log       zerolog.Logger
-	rules     []map[string]*url.URL
+	rules     []rule
 	tlsConfig *tls.Config
 	ca        *x509.CertPool
 }
 
-// todo
-func (s *tlsServer) init() *tlsServer {
-	s.cm = (&certManager{config: s.config}).init()
+func (s *tlsServer) init(ctx context.Context) *tlsServer {
+	s.cm = (&certManager{config: s.config}).init(ctx)
 	s.log = s.config.logger.With().Str("module", "handler").Logger()
-	s.rules = make([]map[string]*url.URL, 0)
+	s.rules = make([]rule, 0)
 	s.tlsConfig = &tls.Config{InsecureSkipVerify: true}
 	if s.config.Fallback != "" {
-		t := make(map[string]*url.URL)
 		u, err := url.Parse(s.config.Fallback)
 		if err != nil {
 			s.log.Fatal().Err(err).Msg("Parse server url failed.")
 		}
-		t["fallback"] = u
-		s.rules = append(s.rules, t)
+		s.rules = append(s.rules, rule{pattern: regexp.MustCompile("^fallback$"), target: u})
 	}
 	for _, ruleSet := range s.config.Rules {
-		t := make(map[string]*url.URL)
 		for reg, value := range ruleSet {
 			u, err := url.Parse(value)
 			if err != nil {
 				s.log.Fatal().Err(err).Msg("Parse server url failed.")
 			}
-			t[reg] = u
+			r, err := regexp.Compile(reg)
+			if err != nil {
+				s.log.Fatal().Err(err).Str("regex", reg).Msg("Compile rule regex failed.")
+			}
+			s.rules = append(s.rules, rule{pattern: r, target: u})
 		}
-		s.rules = append(s.rules, t)
 	}
 	if s.CAPath != "" {
 		data, err := ioutil.ReadFile(s.CAPath)
@@ -70,23 +87,38 @@ func (s *tlsServer) init() *tlsServer {
 	return s
 }
 
-func (s *tlsServer) listen() {
+func (s *tlsServer) listen(ctx context.Context) {
+	wg := &sync.WaitGroup{}
 	l := func(addr string) {
+		defer wg.Done()
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
 			s.log.Fatal().Err(err).Send()
 		}
 		s.log.Info().Str("Listen", addr).Send()
+		go func() {
+			<-ctx.Done()
+			s.log.Info().Str("addr", addr).Msg("Shutting down listener.")
+			listener.Close()
+		}()
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				s.log.Warn().Err(err).Msg("Accept error.")
 				continue
+			}
+			if tc, ok := conn.(*net.TCPConn); ok {
+				tc.SetKeepAlive(true)
+				tc.SetKeepAlivePeriod(30 * time.Second)
 			}
 			go s.handle(conn)
 		}
 	}
-	wg := &sync.WaitGroup{}
 	if len(s.config.Listens) > 0 {
 		for _, v := range s.config.Listens {
 			wg.Add(1)
@@ -97,6 +129,7 @@ func (s *tlsServer) listen() {
 		go l(s.config.Listen)
 	}
 	wg.Wait()
+	s.log.Info().Msg("All listeners stopped.")
 }
 
 func (s *tlsServer) handle(c net.Conn) {
@@ -206,57 +239,24 @@ func (s *tlsServer) dail(u *url.URL, requestSNI string, h2 bool) (net.Conn, erro
 }
 
 func (s *tlsServer) getConfig(sni string) *url.URL {
-	for _, ruleSet := range s.rules {
-		for reg, value := range ruleSet {
-			if ok, _ := regexp.MatchString(reg, sni); ok {
-				return value
-			}
+	for _, r := range s.rules {
+		if r.pattern.MatchString(sni) {
+			return r.target
 		}
 	}
 	return nil
 }
 
-func mycopy(dst io.Writer, src io.Reader, l zerolog.Logger) (written int64, err error) {
-	size := 32 * 1024
-	buf := make([]byte, size)
-	for {
-		l.Debug().Msg("wait for read")
-		nr, er := src.Read(buf)
-		l.Debug().Int("r", nr).Err(er).Send()
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			l.Debug().Int("w", nw).Err(er).Send()
-			if nw < 0 || nr < nw {
-				nw = 0
-				if ew == nil {
-					ew = errors.New("invalid write result")
-				}
-			}
-			written += int64(nw)
-			if ew != nil {
-				err = ew
-				break
-			}
-			if nr != nw {
-				err = io.ErrShortWrite
-				break
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				err = er
-			}
-			break
-		}
-	}
-	return written, err
-}
-
 func (s *tlsServer) pipe(a, b net.Conn, log zerolog.Logger) error {
 	done := make(chan error, 2)
+	wrapReader := func(c net.Conn) io.Reader {
+		if s.config.IdleTimeout > 0 {
+			return &idleConn{Conn: c, timeout: time.Duration(s.config.IdleTimeout) * time.Second}
+		}
+		return c
+	}
 	cp := func(r, w net.Conn, l zerolog.Logger) {
-		//n, err := mycopy(w, r, l)
-		n, err := io.Copy(w, r)
+		n, err := io.Copy(w, wrapReader(r))
 		if err != nil {
 			l.Debug().Int64("bytes", n).Err(err).Msg("Copy error, closing.")
 			w.Close()

@@ -1,12 +1,14 @@
 package rtls
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -30,13 +32,13 @@ type cert struct {
 	tlsConfig *tls.Config
 }
 
-func (s *cert) init(domain string, l zerolog.Logger) *cert {
+func (s *cert) init(ctx context.Context, domain string, l zerolog.Logger) *cert {
 	s.domain = domain
 	s.chain = make([]x509.Certificate, 0)
 	s.log = l.With().Str("domain", s.domain).Logger()
 	s.loadKey()
 	s.loadFromFile()
-	go s.loop()
+	go s.loop(ctx)
 	return s
 }
 
@@ -113,11 +115,39 @@ func (s *cert) loadFromWeb() error {
 	return nil
 }
 
-func (s *cert) loop() {
-	if s.uuid != "" {
-		for {
-			s.loadFromWeb()
-			time.Sleep(10 * time.Second)
+func (s *cert) loop(ctx context.Context) {
+	if s.uuid == "" {
+		return
+	}
+	const (
+		initialBackoff = 10 * time.Second
+		maxBackoff     = 5 * time.Minute
+	)
+	backoff := initialBackoff
+	for {
+		err := s.loadFromWeb()
+		if err != nil {
+			jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
+			sleep := backoff + jitter
+			s.log.Warn().Err(err).Dur("retry_in", sleep).Msg("Cert fetch failed, retrying.")
+			select {
+			case <-ctx.Done():
+				s.log.Debug().Msg("Cert loop stopped.")
+				return
+			case <-time.After(sleep):
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			backoff = initialBackoff
+			select {
+			case <-ctx.Done():
+				s.log.Debug().Msg("Cert loop stopped.")
+				return
+			case <-time.After(10 * time.Second):
+			}
 		}
 	}
 }
