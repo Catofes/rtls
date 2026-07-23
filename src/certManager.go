@@ -13,7 +13,7 @@ type certManager struct {
 	log   zerolog.Logger
 }
 
-//todo
+// todo
 func (s *certManager) init(ctx context.Context) *certManager {
 	s.log = s.config.logger.With().Str("module", "certManager").Logger()
 	s.certs = make(map[string]*cert)

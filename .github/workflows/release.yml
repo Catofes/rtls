@@ -1,38 +1,53 @@
 name: Release
 on:
-  create:
+  push:
     tags:
-    - v*
+      - v*
 
 jobs:
   release:
     name: Release on GitHub
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - name: Check out code
-      uses: actions/checkout@v1
-
-    - name: Validates GO releaser config
-      uses: docker://goreleaser/goreleaser:latest
+      uses: actions/checkout@v6
       with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        cache-dependency-path: go.sum
+
+    - name: Validate GoReleaser configuration
+      uses: goreleaser/goreleaser-action@v7
+      with:
+        version: v2.17.0
         args: check
 
     - name: Create release on GitHub
-      uses: docker://goreleaser/goreleaser:latest
+      uses: goreleaser/goreleaser-action@v7
       with:
-        args: release
+        version: v2.17.0
+        args: release --clean
       env:
         GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
   push_to_registry:
     name: Push Docker image to GitHub Packages
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v6
         with:
           images: |
             catofes/rtls
@@ -40,22 +55,22 @@ jobs:
           tags: |
             type=semver,pattern={{raw}}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v4
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Docker image
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64

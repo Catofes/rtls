@@ -1,0 +1,8 @@
+.git
+.github
+.vscode
+.agents
+.codex
+build
+certs
+config.json

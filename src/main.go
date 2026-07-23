@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-//Run function is the entry of this program
+// Run function is the entry of this program
 func Run() {
 	path := flag.String("c", "./config.json", "config path")
 	flag.Parse()
