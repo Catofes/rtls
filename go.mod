@@ -1,6 +1,6 @@
 module github.com/Catofes/rtls
 
-go 1.12
+go 1.16
 
 require (
 	github.com/go-resty/resty/v2 v2.0.0

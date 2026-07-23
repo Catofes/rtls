@@ -49,17 +49,17 @@ func (s *tlsServer) init(ctx context.Context) *tlsServer {
 	s.rules = make([]rule, 0)
 	s.tlsConfig = &tls.Config{InsecureSkipVerify: true}
 	if s.config.Fallback != "" {
-		u, err := url.Parse(s.config.Fallback)
+		u, err := validateTarget(s.config.Fallback)
 		if err != nil {
-			s.log.Fatal().Err(err).Msg("Parse server url failed.")
+			s.log.Fatal().Err(err).Str("target", s.config.Fallback).Msg("Invalid fallback target.")
 		}
 		s.rules = append(s.rules, rule{pattern: regexp.MustCompile("^fallback$"), target: u})
 	}
 	for _, ruleSet := range s.config.Rules {
 		for reg, value := range ruleSet {
-			u, err := url.Parse(value)
+			u, err := validateTarget(value)
 			if err != nil {
-				s.log.Fatal().Err(err).Msg("Parse server url failed.")
+				s.log.Fatal().Err(err).Str("target", value).Msg("Invalid rule target.")
 			}
 			r, err := regexp.Compile(reg)
 			if err != nil {
@@ -157,11 +157,13 @@ func (s *tlsServer) handle(c net.Conn) {
 				log.Warn().Str("sni", host).Str("dst", u.Hostname()).Err(err).Msg("Dial error.")
 				return
 			}
-			defer tc.Close()
 			if tc.(*tls.Conn).ConnectionState().NegotiatedProtocol == "h2" {
 				h2 = true
 				log.Debug().Str("sni", host).Str("dst", u.Hostname()).Msg("h2 upstream connected.")
 				rc = tc
+				defer tc.Close()
+			} else {
+				tc.Close()
 			}
 		}
 		switch u.Scheme {
@@ -203,6 +205,10 @@ func (s *tlsServer) handle(c net.Conn) {
 			lc = tc
 		}
 		if !h2 {
+			if rc != nil {
+				rc.Close()
+				rc = nil
+			}
 			if u.Query().Get("h2") == "true" {
 				log.Debug().Str("sni", host).Str("dst", u.Hostname()).Msg("h2 not negotiated, falling back to http/1.1.")
 			}
@@ -214,6 +220,27 @@ func (s *tlsServer) handle(c net.Conn) {
 		}
 		log.Info().Str("sni", host).Str("dst", u.Hostname()).Msg("Tunnel established.")
 		s.pipe(lc, rc, cc.log)
+	}
+}
+
+func validateTarget(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Hostname() == "" || u.Port() == "" {
+		return nil, errors.New("target must include a host and port")
+	}
+	switch u.Scheme {
+	case "direct":
+		return u, nil
+	case "tcp", "tls":
+		if u.User == nil || u.User.Username() == "" {
+			return nil, errors.New("tcp and tls targets must include a certificate name")
+		}
+		return u, nil
+	default:
+		return nil, errors.New("target has an unsupported scheme")
 	}
 }
 

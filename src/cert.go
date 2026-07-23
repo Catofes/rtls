@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -29,6 +30,14 @@ type cert struct {
 	mutex    sync.Mutex
 	//lastUpdate time.Time
 	log       zerolog.Logger
+	tlsConfig *tls.Config
+}
+
+type certState struct {
+	data      string
+	chain     []x509.Certificate
+	cert      *x509.Certificate
+	chainRaw  []byte
 	tlsConfig *tls.Config
 }
 
@@ -75,14 +84,31 @@ func (s *cert) loadFromFile() error {
 		s.log.Debug().Str("option", "load from file").Err(err).Send()
 		return err
 	}
-	s.loadFromPEM(string(data))
-	return nil
+	return s.loadFromPEM(string(data))
 }
 
-func (s *cert) saveToFile() error {
+func (s *cert) saveToFile(data string) error {
 	path := fmt.Sprintf("%s/%s.crt", s.config.CertsPath, s.domain)
-	err := ioutil.WriteFile(path, []byte(s.data), 0644)
+	tmp, err := os.CreateTemp(s.config.CertsPath, fmt.Sprintf(".%s.crt-*", s.domain))
 	if err != nil {
+		s.log.Debug().Str("option", "save to file").Err(err).Send()
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.WriteString(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
 		s.log.Debug().Str("option", "save to file").Err(err).Send()
 		return err
 	}
@@ -90,12 +116,7 @@ func (s *cert) saveToFile() error {
 }
 
 func (s *cert) loadFromWeb() error {
-	var id string
-	if s.cert == nil {
-		id = "null"
-	} else {
-		id = s.cert.SerialNumber.String()
-	}
+	id := s.currentSerial()
 	url := fmt.Sprintf("%s/%s/wait/%s", s.config.CertGateway, s.uuid, id)
 	resp, err := resty.New().R().Get(url)
 	if err != nil {
@@ -110,8 +131,14 @@ func (s *cert) loadFromWeb() error {
 		return nil
 	}
 	data := string(resp.Body())
-	s.loadFromPEM(data)
-	s.saveToFile()
+	state, err := s.prepareState(data)
+	if err != nil {
+		return err
+	}
+	if err := s.saveToFile(data); err != nil {
+		return err
+	}
+	s.applyState(state)
 	return nil
 }
 
@@ -153,14 +180,20 @@ func (s *cert) loop(ctx context.Context) {
 }
 
 func (s *cert) loadFromPEM(data string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	state, err := s.prepareState(data)
+	if err != nil {
+		return err
+	}
+	s.applyState(state)
+	return nil
+}
+
+func (s *cert) prepareState(data string) (*certState, error) {
 	l := s.log.With().Str("option", "load from PEM").Logger()
-	var err error
 	chain, err := s.parseCert(data)
 	if err != nil {
 		l.Err(err).Send()
-		return err
+		return nil, err
 	}
 	var cert *x509.Certificate
 	for k, c := range chain {
@@ -172,29 +205,41 @@ func (s *cert) loadFromPEM(data string) error {
 	if cert == nil {
 		err = errors.New("can not find final cert")
 		l.Err(err).Send()
-		return err
+		return nil, err
 	}
 
-	if s.cert != nil && cert.SerialNumber.String() == s.cert.SerialNumber.String() {
-		l.Debug().Str("serial", cert.SerialNumber.String()).Msg("Same cert, ignore.")
-		return nil
-	}
-	l.Debug().Str("serial", cert.SerialNumber.String()).Msg("New cert, update.")
-	s.data = data
-	s.chain = chain
-	s.cert = cert
-	s.chainRaw = []byte(s.data)
-	keyPair, err := tls.X509KeyPair(s.chainRaw, s.keyRaw)
+	chainRaw := []byte(data)
+	keyPair, err := tls.X509KeyPair(chainRaw, s.keyRaw)
 	if err != nil {
 		s.log.Debug().Str("option", "prepare key pair").Err(err).Send()
-		return err
+		return nil, err
 	}
-	certs := make([]tls.Certificate, 0)
-	s.tlsConfig = &tls.Config{
-		Certificates: append(certs, keyPair),
-	}
+	return &certState{
+		data:     data,
+		chain:    chain,
+		cert:     cert,
+		chainRaw: chainRaw,
+		tlsConfig: &tls.Config{
+			Certificates: []tls.Certificate{keyPair},
+		},
+	}, nil
+}
 
-	return nil
+func (s *cert) applyState(state *certState) {
+	l := s.log.With().Str("option", "load from PEM").Logger()
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.cert != nil && state.cert.SerialNumber.String() == s.cert.SerialNumber.String() {
+		l.Debug().Str("serial", state.cert.SerialNumber.String()).Msg("Same cert, ignore.")
+		return
+	}
+	l.Debug().Str("serial", state.cert.SerialNumber.String()).Msg("New cert, update.")
+	s.data = state.data
+	s.chain = state.chain
+	s.cert = state.cert
+	s.chainRaw = state.chainRaw
+	s.tlsConfig = state.tlsConfig
 }
 
 func (s *cert) parseCert(data string) ([]x509.Certificate, error) {
@@ -226,4 +271,13 @@ func (s *cert) getTLSConfig() *tls.Config {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.tlsConfig
+}
+
+func (s *cert) currentSerial() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.cert == nil {
+		return "null"
+	}
+	return s.cert.SerialNumber.String()
 }

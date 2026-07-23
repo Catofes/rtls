@@ -18,7 +18,7 @@ import (
 	"fmt"
 )
 
-var TLSHeaderLength = 5
+const TLSHeaderLength = 5
 
 /* This function is basically all most folks want to invoke out of this
  * jumble of bits. This will take an incoming TLS Client Hello (including
@@ -47,21 +47,33 @@ func GetHostname(data []byte) (string, error) {
 /* Given a Server Name TLS Extension block, parse out and return the SNI
  * (Server Name Indication) payload */
 func GetSNIBlock(data []byte) ([]byte, error) {
-	index := 0
-
-	for {
-		if index >= len(data) {
-			break
-		}
-		length := int(data[index])<<8 + int(data[index+1])
-		endIndex := index + 2 + length
-		if data[index+2] == 0x00 { /* SNI */
-			sni := data[index+3:]
-			sniLength := int(sni[0])<<8 + int(sni[1])
-			return sni[2 : sniLength+2], nil
-		}
-		index = endIndex
+	if len(data) < 2 {
+		return nil, fmt.Errorf("not enough bytes for server name list")
 	}
+
+	listLength := int(data[0])<<8 + int(data[1])
+	if listLength > len(data)-2 {
+		return nil, fmt.Errorf("server name list exceeds extension length")
+	}
+	data = data[2 : 2+listLength]
+
+	for len(data) > 0 {
+		if len(data) < 3 {
+			return nil, fmt.Errorf("truncated server name entry")
+		}
+		nameLength := int(data[1])<<8 + int(data[2])
+		if nameLength > len(data)-3 {
+			return nil, fmt.Errorf("server name exceeds entry length")
+		}
+		if data[0] == 0x00 { /* SNI */
+			if nameLength == 0 {
+				return nil, fmt.Errorf("empty server name")
+			}
+			return data[3 : 3+nameLength], nil
+		}
+		data = data[3+nameLength:]
+	}
+
 	return []byte{}, fmt.Errorf(
 		"finished parsing the SN block without finding an SNI",
 	)
@@ -69,28 +81,27 @@ func GetSNIBlock(data []byte) ([]byte, error) {
 
 /* Given a TLS Extensions data block, go ahead and find the SN block */
 func GetSNBlock(data []byte) ([]byte, error) {
-	index := 0
-
 	if len(data) < 2 {
 		return []byte{}, fmt.Errorf("not enough bytes to be an SN block")
 	}
-	extensionLength := int(data[index])<<8 + int(data[index+1])
+	extensionLength := int(data[0])<<8 + int(data[1])
 	if extensionLength+2 > len(data) {
 		return []byte{}, fmt.Errorf("extension looks bonkers")
 	}
 	data = data[2 : extensionLength+2]
 
-	for {
-		if index+3 >= len(data) {
-			break
+	for len(data) > 0 {
+		if len(data) < 4 {
+			return nil, fmt.Errorf("truncated TLS extension")
 		}
-		length := int(data[index+2])<<8 + int(data[index+3])
-		endIndex := index + 4 + length
-		if data[index] == 0x00 && data[index+1] == 0x00 {
-			return data[index+4 : endIndex], nil
+		length := int(data[2])<<8 + int(data[3])
+		if length > len(data)-4 {
+			return nil, fmt.Errorf("TLS extension exceeds extension block")
 		}
-
-		index = endIndex
+		if data[0] == 0x00 && data[1] == 0x00 {
+			return data[4 : 4+length], nil
+		}
+		data = data[4+length:]
 	}
 
 	return []byte{}, fmt.Errorf(
@@ -106,38 +117,50 @@ func GetExtensionBlock(data []byte) ([]byte, error) {
 	 *   data[...38+5]     - start of SessionID (length bit)
 	 *   data[38+5]        - length of SessionID
 	 */
-	var index = TLSHeaderLength + 38
-
-	if len(data) <= index+1 {
+	index := TLSHeaderLength + 38
+	if len(data) < index+1 {
 		return []byte{}, fmt.Errorf("not enough bits to be a Client Hello")
 	}
 
 	/* Index is at SessionID Length bit */
-	if newIndex := index + 1 + int(data[index]); (newIndex + 2) < len(data) {
-		index = newIndex
-	} else {
+	index++
+	sessionIDLength := int(data[index-1])
+	if sessionIDLength > len(data)-index {
 		return []byte{}, fmt.Errorf("not enough bytes for the SessionID")
 	}
+	index += sessionIDLength
 
 	/* Index is at Cipher List Length bits */
-	if newIndex := index + 2 + int(data[index])<<8 + int(data[index+1]); (newIndex + 1) < len(data) {
-		index = newIndex
-	} else {
+	if len(data)-index < 2 {
 		return []byte{}, fmt.Errorf("not enough bytes for the Cipher List")
 	}
+	cipherListLength := int(data[index])<<8 + int(data[index+1])
+	index += 2
+	if cipherListLength > len(data)-index {
+		return []byte{}, fmt.Errorf("not enough bytes for the Cipher List")
+	}
+	index += cipherListLength
 
 	/* Index is now at the compression length bit */
-	if newIndex := index + 1 + int(data[index]); newIndex < len(data) {
-		index = newIndex
-	} else {
+	if len(data)-index < 1 {
 		return []byte{}, fmt.Errorf("not enough bytes for the compression length")
 	}
+	compressionLength := int(data[index])
+	index++
+	if compressionLength > len(data)-index {
+		return []byte{}, fmt.Errorf("not enough bytes for the compression methods")
+	}
+	index += compressionLength
 
-	/* Now we're at the Extension start */
-	if len(data[index:]) == 0 {
+	/* Now we're at the Extension length field. */
+	if len(data)-index < 2 {
 		return nil, fmt.Errorf("no extensions")
 	}
-	return data[index:], nil
+	extensionLength := int(data[index])<<8 + int(data[index+1])
+	if extensionLength > len(data)-(index+2) {
+		return nil, fmt.Errorf("extensions exceed Client Hello length")
+	}
+	return data[index : index+2+extensionLength], nil
 }
 
 // vim: foldmethod=marker
